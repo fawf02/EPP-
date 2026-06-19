@@ -1,41 +1,46 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:math';
 import 'epp_frame_buffer.dart';
 import 'epp_xml_builder.dart';
 import 'epp_response_parser.dart';
 
 class EppClient {
-  SecureSocket? _socket;
+  Socket? _socket;
   StreamSubscription<List<int>>? _sub;
   Timer? _keepAlive;
 
   final _buf = EppFrameBuffer();
 
-  // Очередь completers — каждая отправленная команда кладёт сюда
-  // completer и ждёт, пока _onData не достанет следующий ответ.
-  // Работает только потому что EPP — строго request/response,
-  // сервер не шлёт ничего сам (кроме greeting при коннекте).
   final _queue = <Completer<EppResponse>>[];
 
   bool get connected => _socket != null;
 
   Future<EppResponse> connect(String host, int port) async {
-    _socket = await SecureSocket.connect(
+    print('[EPP] connecting to $host:$port');
+    // testepp.nic.kz работает без TLS — plain TCP
+    _socket = await Socket.connect(
       host,
       port,
-      onBadCertificate: (_) => true,
       timeout: const Duration(seconds: 10),
     );
+    print('[EPP] socket connected');
 
     _sub = _socket!.listen(_onData, onError: _onErr, onDone: _onDone);
 
-    // Сервер сам шлёт greeting сразу после коннекта — ждём его
     final greeting = _nextResponse();
 
-    // Keep-alive: hello каждые 4 минуты.
     // Сервер рвёт сессию примерно через 10 мин без активности.
-    _keepAlive = Timer.periodic(const Duration(minutes: 4), (_) {
-      if (connected) _send(EppXmlBuilder.hello());
+    _keepAlive = Timer.periodic(const Duration(minutes: 4), (_) async {
+      if (!connected) return;
+      try {
+        final resp = await _sendWait(EppXmlBuilder.pollReq());
+        if (resp.code == 1301) {
+          final msgId = _extractMsgId(resp.raw);
+          if (msgId != null) await _sendWait(EppXmlBuilder.pollAck(msgId));
+        }
+      } catch (_) {
+      }
     });
 
     return greeting;
@@ -49,17 +54,31 @@ class EppClient {
     return _sendWait(EppXmlBuilder.domainCheck(names));
   }
 
+  Future<EppResponse> domainInfo(String name) {
+    return _sendWait(EppXmlBuilder.domainInfo(name));
+  }
+
   Future<EppResponse> domainCreate({
     required String name,
-    required String registrant,
     required String authPw,
-    List<String> ns = const [],
-  }) {
+    int periodYears = 1,
+  }) async {
+    final rnd = Random().nextInt(9000000) + 1000000;
+    final contactId = 'JD$rnd-KZ';
+
+    final contactResp = await _sendWait(
+      EppXmlBuilder.contactCreate(contactId: contactId),
+    );
+
+    if (!contactResp.ok && contactResp.code != 2302) {
+      return contactResp;
+    }
+
     return _sendWait(EppXmlBuilder.domainCreate(
       name: name,
-      registrant: registrant,
       authPw: authPw,
-      ns: ns,
+      contactId: contactId,
+      periodYears: periodYears,
     ));
   }
 
@@ -70,6 +89,7 @@ class EppClient {
   }
 
   void _send(String xml) {
+    print('[EPP SEND] ${xml.substring(0, xml.length.clamp(0, 150))}');
     _socket?.add(EppFrameBuffer.wrap(xml));
   }
 
@@ -81,32 +101,29 @@ class EppClient {
   Future<EppResponse> _nextResponse() {
     final c = Completer<EppResponse>();
     _queue.add(c);
-    // 30 секунд — с запасом, обычно сервер отвечает за <1 сек
     return c.future.timeout(const Duration(seconds: 30));
   }
 
   void _onData(List<int> bytes) {
+    print('[EPP RECV] ${bytes.length} bytes');
     final frames = _buf.addBytes(bytes);
     for (final xml in frames) {
+      print('[EPP FRAME] ${xml.substring(0, xml.length.clamp(0, 200))}');
       final resp = EppResponse(xml);
-      if (_queue.isNotEmpty) {
-        _queue.removeAt(0).complete(resp);
-      }
+      if (_queue.isNotEmpty) _queue.removeAt(0).complete(resp);
     }
   }
 
   void _onErr(Object e) {
-    for (final c in _queue) {
-      c.completeError(e);
-    }
+    print('[EPP ERR] $e');
+    for (final c in _queue) c.completeError(e);
     _queue.clear();
     close();
   }
 
   void _onDone() {
-    for (final c in _queue) {
-      c.completeError(StateError('connection closed'));
-    }
+    print('[EPP DONE] server closed connection');
+    for (final c in _queue) c.completeError(StateError('connection closed'));
     _queue.clear();
     close();
   }
@@ -116,5 +133,10 @@ class EppClient {
     _sub?.cancel();
     _socket?.destroy();
     _socket = null;
+  }
+
+  String? _extractMsgId(String raw) {
+    final m = RegExp(r'msgID="([^"]+)"').firstMatch(raw);
+    return m?.group(1);
   }
 }

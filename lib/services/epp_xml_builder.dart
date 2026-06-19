@@ -1,133 +1,121 @@
 import 'package:xml/xml.dart';
 
-// Строим XML через дерево, а не склейкой строк — иначе namespace'ы
-// расставляются неправильно и сервер отвечает 2001 (unknown command).
-// Убедился на своих граблях с domain:check.
-
-const _eppNs = 'urn:ietf:params:xml:ns:epp-1.0';
-const _domainNs = 'urn:ietf:params:xml:ns:domain-1.0';
+const _epp = 'urn:ietf:params:xml:ns:epp-1.0';
+const _domain = 'urn:ietf:params:xml:ns:domain-1.0';
+const _contact = 'urn:ietf:params:xml:ns:contact-1.0';
 
 class EppXmlBuilder {
-  static String hello() {
-    final doc = XmlDocument([
-      XmlProcessing('xml', 'version="1.0" encoding="UTF-8" standalone="no"'),
-      XmlElement(XmlName('epp'), [XmlAttribute(XmlName('xmlns'), _eppNs)], [
-        XmlElement(XmlName('hello')),
-      ]),
-    ]);
-    return doc.toXmlString();
-  }
+  //  keep-alive
+  static String pollReq() => _wrap(
+      XmlElement(XmlName('poll'), [XmlAttribute(XmlName('op'), 'req')]));
+
+  static String pollAck(String id) => _wrap(
+      XmlElement(XmlName('poll'), [
+        XmlAttribute(XmlName('op'), 'ack'),
+        XmlAttribute(XmlName('msgID'), id),
+      ]));
 
   static String login({required String clId, required String pw}) {
-    final trid = _trid();
-    final doc = XmlDocument([
-      XmlProcessing('xml', 'version="1.0" encoding="UTF-8" standalone="no"'),
-      XmlElement(XmlName('epp'), [XmlAttribute(XmlName('xmlns'), _eppNs)], [
-        XmlElement(XmlName('command'), [], [
-          XmlElement(XmlName('login'), [], [
-            XmlElement(XmlName('clID'), [], [XmlText(clId)]),
-            XmlElement(XmlName('pw'), [], [XmlText(pw)]),
-            XmlElement(XmlName('options'), [], [
-              XmlElement(XmlName('version'), [], [XmlText('1.0')]),
-              XmlElement(XmlName('lang'), [], [XmlText('en')]),
-            ]),
-            XmlElement(XmlName('svcs'), [], [
-              XmlElement(XmlName('objURI'), [], [XmlText(_domainNs)]),
-              XmlElement(XmlName('objURI'), [],
-                  [XmlText('urn:ietf:params:xml:ns:host-1.0')]),
-              XmlElement(XmlName('objURI'), [],
-                  [XmlText('urn:ietf:params:xml:ns:contact-1.0')]),
-            ]),
-          ]),
-          XmlElement(XmlName('clTRID'), [], [XmlText(trid)]),
-        ]),
+    return _wrap(XmlElement(XmlName('login'), [], [
+      XmlElement(XmlName('clID'), [], [XmlText(clId)]),
+      XmlElement(XmlName('pw'), [], [XmlText(pw)]),
+      XmlElement(XmlName('options'), [], [
+        XmlElement(XmlName('version'), [], [XmlText('1.0')]),
+        XmlElement(XmlName('lang'), [], [XmlText('en')]),
       ]),
-    ]);
-    return doc.toXmlString();
+      XmlElement(XmlName('svcs'), [], [
+        XmlElement(XmlName('objURI'), [], [XmlText(_domain)]),
+        XmlElement(XmlName('objURI'), [], [XmlText(_contact)]),
+      ]),
+    ]));
   }
 
-  static String logout() {
-    final doc = XmlDocument([
-      XmlProcessing('xml', 'version="1.0" encoding="UTF-8" standalone="no"'),
-      XmlElement(XmlName('epp'), [XmlAttribute(XmlName('xmlns'), _eppNs)], [
-        XmlElement(XmlName('command'), [], [
-          XmlElement(XmlName('logout')),
-          XmlElement(XmlName('clTRID'), [], [XmlText(_trid())]),
-        ]),
-      ]),
-    ]);
-    return doc.toXmlString();
-  }
+  static String logout() => _wrap(XmlElement(XmlName('logout')));
 
   static String domainCheck(List<String> names) {
-    final nameElements = names
-        .map((n) => XmlElement(
-              XmlName('name', 'domain'),
-              [],
-              [XmlText(n)],
-            ))
-        .toList();
+    return _wrap(XmlElement(XmlName('check'), [], [
+      XmlElement(XmlName('check', 'domain'),
+          [XmlAttribute(XmlName('xmlns:domain'), _domain)],
+          names.map((n) =>
+              XmlElement(XmlName('name', 'domain'), [], [XmlText(n)])).toList()),
+    ]));
+  }
 
-    final doc = XmlDocument([
-      XmlProcessing('xml', 'version="1.0" encoding="UTF-8" standalone="no"'),
-      XmlElement(XmlName('epp'), [XmlAttribute(XmlName('xmlns'), _eppNs)], [
-        XmlElement(XmlName('command'), [], [
-          XmlElement(XmlName('check'), [], [
-            XmlElement(
-              XmlName('check', 'domain'),
-              [XmlAttribute(XmlName('xmlns:domain'), _domainNs)],
-              nameElements,
-            ),
+  static String domainInfo(String name) {
+    return _wrap(XmlElement(XmlName('info'), [], [
+      XmlElement(XmlName('info', 'domain'),
+          [XmlAttribute(XmlName('xmlns:domain'), _domain)],
+          [XmlElement(XmlName('name', 'domain'), [], [XmlText(name)])]),
+    ]));
+  }
+
+  static String contactCreate({required String contactId}) {
+    return _wrap(XmlElement(XmlName('create'), [], [
+      XmlElement(XmlName('create', 'contact'),
+          [XmlAttribute(XmlName('xmlns:contact'), _contact)],
+          [
+            XmlElement(XmlName('id', 'contact'), [], [XmlText(contactId)]),
+            XmlElement(XmlName('postalInfo', 'contact'),
+                [XmlAttribute(XmlName('type'), 'int')], [
+                  XmlElement(XmlName('name', 'contact'), [], [XmlText('Test User')]),
+                  XmlElement(XmlName('org', 'contact'), [], [XmlText('Test Org')]),
+                  XmlElement(XmlName('addr', 'contact'), [], [
+                    XmlElement(XmlName('street', 'contact'), [], [XmlText('Street 1')]),
+                    XmlElement(XmlName('city', 'contact'), [], [XmlText('Almaty')]),
+                    XmlElement(XmlName('sp', 'contact'), [], [XmlText('AL')]),
+                    XmlElement(XmlName('pc', 'contact'), [], [XmlText('050000')]),
+                    XmlElement(XmlName('cc', 'contact'), [], [XmlText('KZ')]),
+                  ]),
+                ]),
+            XmlElement(XmlName('voice', 'contact'), [], [XmlText('+7.7777777777')]),
+            XmlElement(XmlName('email', 'contact'), [], [XmlText('test@example.com')]),
+            XmlElement(XmlName('authInfo', 'contact'), [], [
+              XmlElement(XmlName('pw', 'contact'), [], [XmlText('123456')]),
+            ]),
           ]),
-          XmlElement(XmlName('clTRID'), [], [XmlText(_trid())]),
-        ]),
-      ]),
-    ]);
-    return doc.toXmlString();
+    ]));
   }
 
   static String domainCreate({
     required String name,
-    required String registrant,
     required String authPw,
+    required String contactId,
     int periodYears = 1,
-    List<String> ns = const [],
+    List<String> ns = const ['ns1.nic.kz', 'ns.nic.kz'],
   }) {
-    final nsEl = ns.isEmpty
-        ? null
-        : XmlElement(XmlName('ns', 'domain'), [], [
-            for (final h in ns)
-              XmlElement(XmlName('hostObj', 'domain'), [], [XmlText(h)])
-          ]);
+    return _wrap(XmlElement(XmlName('create'), [], [
+      XmlElement(XmlName('create', 'domain'),
+          [XmlAttribute(XmlName('xmlns:domain'), _domain)],
+          [
+            XmlElement(XmlName('name', 'domain'), [], [XmlText(name)]),
+            XmlElement(XmlName('registrant', 'domain'), [], [XmlText(contactId)]),
+            XmlElement(XmlName('contact', 'domain'),
+                [XmlAttribute(XmlName('type'), 'admin')], [XmlText(contactId)]),
+            XmlElement(XmlName('contact', 'domain'),
+                [XmlAttribute(XmlName('type'), 'tech')], [XmlText(contactId)]),
+            XmlElement(XmlName('ns', 'domain'), [],
+                ns.map((h) =>
+                    XmlElement(XmlName('hostObj', 'domain'), [], [XmlText(h)])).toList()),
+            XmlElement(XmlName('authInfo', 'domain'), [], [
+              XmlElement(XmlName('pw', 'domain'), [], [XmlText(authPw)]),
+            ]),
+          ]),
+    ]));
+  }
 
-    final children = [
-      XmlElement(XmlName('name', 'domain'), [], [XmlText(name)]),
-      XmlElement(XmlName('period', 'domain'),
-          [XmlAttribute(XmlName('unit'), 'y')], [XmlText('$periodYears')]),
-      if (nsEl != null) nsEl,
-      XmlElement(XmlName('registrant', 'domain'), [], [XmlText(registrant)]),
-      XmlElement(XmlName('authInfo', 'domain'), [], [
-        XmlElement(XmlName('pw', 'domain'), [], [XmlText(authPw)]),
-      ]),
-    ];
-
+  // в команды оборачиваются в epp > command > [child] + clTRID
+  static String _wrap(XmlElement child) {
     final doc = XmlDocument([
       XmlProcessing('xml', 'version="1.0" encoding="UTF-8" standalone="no"'),
-      XmlElement(XmlName('epp'), [XmlAttribute(XmlName('xmlns'), _eppNs)], [
+      XmlElement(XmlName('epp'), [XmlAttribute(XmlName('xmlns'), _epp)], [
         XmlElement(XmlName('command'), [], [
-          XmlElement(XmlName('create'), [], [
-            XmlElement(
-              XmlName('create', 'domain'),
-              [XmlAttribute(XmlName('xmlns:domain'), _domainNs)],
-              children,
-            ),
+          child,
+          XmlElement(XmlName('clTRID'), [], [
+            XmlText('APP-${DateTime.now().millisecondsSinceEpoch}'),
           ]),
-          XmlElement(XmlName('clTRID'), [], [XmlText(_trid())]),
         ]),
       ]),
     ]);
     return doc.toXmlString();
   }
-
-  static String _trid() => 'APP-${DateTime.now().millisecondsSinceEpoch}';
 }

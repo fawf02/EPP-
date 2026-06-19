@@ -1,6 +1,5 @@
 import 'package:xml/xml.dart';
 
-
 class EppResponse {
   final XmlDocument _doc;
   final String raw;
@@ -8,28 +7,53 @@ class EppResponse {
   EppResponse(this.raw) : _doc = XmlDocument.parse(raw);
 
   int? get code {
-    final el = _doc.findAllElements('result').firstOrNull;
-    final attr = el?.getAttribute('code');
-    return attr != null ? int.tryParse(attr) : null;
+    // Добавил поиск по всем namespace (*), иначе epp:result не находился
+    final el = _doc.findAllElements('result', namespace: '*').firstOrNull;
+    if (el == null) return null;
+
+    final attr = el.getAttribute('code');
+    if (attr == null) return null;
+
+    return int.tryParse(attr);
   }
 
   String? get message {
-    return _doc.findAllElements('msg').firstOrNull?.innerText;
+    final msgEl = _doc.findAllElements('msg', namespace: '*').firstOrNull;
+    return msgEl?.innerText;
   }
 
-  bool get ok => (code ?? 0) >= 1000 && (code ?? 0) < 2000;
+  bool get ok {
+    final status = code;
+    if (status == null) return false;
+    return status >= 1000 && status < 2000;
+  }
 
-  // Возвращает {domainName: доступен} из ответа на domain:check
+  // Возвращает {domainName: доступен} из  domain:check
   Map<String, bool> domainAvailability() {
     final result = <String, bool>{};
-    // namespace может быть объявлен по-разному, ищем по localName
-    for (final el in _doc.findAllElements('name')) {
+
+    // Сервер присылает 'domain:name', поэтому обычный 'name' ничего не находил.
+    final tags = _doc.findAllElements('name', namespace: '*');
+
+    for (final el in tags) {
       final avail = el.getAttribute('avail');
       if (avail == null) continue;
-      result[el.innerText.trim()] = avail == '1';
+
+      // На всякий случай проверяем и '1', и 'true', мало ли что сервер выкинет
+      bool isAvailable = false;
+      if (avail == '1' || avail == 'true') {
+        isAvailable = true;
+      }
+
+      final name = el.innerText.trim();
+      result[name] = isAvailable;
     }
     return result;
   }
 
-  bool get isGreeting => _doc.findAllElements('greeting').isNotEmpty;
+  bool get isGreeting {
+    // Проверка на приветственное сообщение от сервера
+    final greeting = _doc.findAllElements('greeting', namespace: '*');
+    return greeting.isNotEmpty;
+  }
 }

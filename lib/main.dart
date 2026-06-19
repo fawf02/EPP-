@@ -23,7 +23,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   @override
   void dispose() {
-    _client.close();
+    // _client.close();
     super.dispose();
   }
 
