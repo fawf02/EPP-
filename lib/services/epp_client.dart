@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:async';
-import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'epp_frame_buffer.dart';
 import 'epp_xml_builder.dart';
 import 'epp_response_parser.dart';
@@ -11,26 +11,16 @@ class EppClient {
   Timer? _keepAlive;
 
   final _buf = EppFrameBuffer();
-
   final _queue = <Completer<EppResponse>>[];
 
   bool get connected => _socket != null;
 
   Future<EppResponse> connect(String host, int port) async {
     print('[EPP] connecting to $host:$port');
-    // testepp.nic.kz работает без TLS — plain TCP
-    _socket = await Socket.connect(
-      host,
-      port,
-      timeout: const Duration(seconds: 10),
-    );
+    _socket = await Socket.connect(host, port, timeout: const Duration(seconds: 10));
     print('[EPP] socket connected');
-
     _sub = _socket!.listen(_onData, onError: _onErr, onDone: _onDone);
-
     final greeting = _nextResponse();
-
-    // Сервер рвёт сессию примерно через 10 мин без активности.
     _keepAlive = Timer.periodic(const Duration(minutes: 4), (_) async {
       if (!connected) return;
       try {
@@ -39,10 +29,8 @@ class EppClient {
           final msgId = _extractMsgId(resp.raw);
           if (msgId != null) await _sendWait(EppXmlBuilder.pollAck(msgId));
         }
-      } catch (_) {
-      }
+      } catch (_) {}
     });
-
     return greeting;
   }
 
@@ -58,26 +46,28 @@ class EppClient {
     return _sendWait(EppXmlBuilder.domainInfo(name));
   }
 
+  Future<EppResponse> contactInfo(String contactId) {
+    return _sendWait(EppXmlBuilder.contactInfo(contactId));
+  }
+
+  Future<EppResponse> contactCreate({required String contactId}) {
+    return _sendWait(EppXmlBuilder.contactCreate(contactId: contactId));
+  }
+
   Future<EppResponse> domainCreate({
     required String name,
     required String authPw,
+    required String registrant,
+    required String adminContact,
+    required String techContact,
     int periodYears = 1,
-  }) async {
-    final rnd = Random().nextInt(9000000) + 1000000;
-    final contactId = 'JD$rnd-KZ';
-
-    final contactResp = await _sendWait(
-      EppXmlBuilder.contactCreate(contactId: contactId),
-    );
-
-    if (!contactResp.ok && contactResp.code != 2302) {
-      return contactResp;
-    }
-
+  }) {
     return _sendWait(EppXmlBuilder.domainCreate(
       name: name,
       authPw: authPw,
-      contactId: contactId,
+      registrant: registrant,
+      adminContact: adminContact,
+      techContact: techContact,
       periodYears: periodYears,
     ));
   }
@@ -106,12 +96,14 @@ class EppClient {
 
   void _onData(List<int> bytes) {
     print('[EPP RECV] ${bytes.length} bytes');
-    final frames = _buf.addBytes(bytes);
-    for (final xml in frames) {
-      print('[EPP FRAME] ${xml.substring(0, xml.length.clamp(0, 200))}');
+    _buf.addBytes(bytes).forEach((xml) {
+      final parts = RegExp(r'.{1,600}').allMatches(xml).map((m) => m.group(0)!).toList();
+      for (var i = 0; i < parts.length; i++) {
+        debugPrint('[FRAME $i] ${parts[i]}');
+      }
       final resp = EppResponse(xml);
       if (_queue.isNotEmpty) _queue.removeAt(0).complete(resp);
-    }
+    });
   }
 
   void _onErr(Object e) {
