@@ -128,10 +128,10 @@ class EppXmlBuilder {
                 [
                   XmlElement(
                     XmlName('residenceDetails', 'contact-ext'),
-                    [XmlAttribute(XmlName('country'), 'US')],
+                    [XmlAttribute(XmlName('country'), 'KZ')],
                     [
-                      XmlElement(XmlName('externalIdType', 'contact-ext'), [], [XmlText('EIN')]),
-                      XmlElement(XmlName('externalIdValue', 'contact-ext'), [], [XmlText('12-3456789')]),
+                      XmlElement(XmlName('externalIdType', 'contact-ext'), [], [XmlText('IIN')]),
+                      XmlElement(XmlName('externalIdValue', 'contact-ext'), [], [XmlText('123456789012')]),
                     ],
                   ),
                 ],
