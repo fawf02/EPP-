@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'epp_frame_buffer.dart';
 import 'epp_xml_builder.dart';
 import 'epp_response_parser.dart';
@@ -99,7 +98,7 @@ class EppClient {
     _buf.addBytes(bytes).forEach((xml) {
       final parts = RegExp(r'.{1,600}').allMatches(xml).map((m) => m.group(0)!).toList();
       for (var i = 0; i < parts.length; i++) {
-        debugPrint('[FRAME $i] ${parts[i]}');
+        print('[FRAME $i] ${parts[i]}');
       }
       final resp = EppResponse(xml);
       if (_queue.isNotEmpty) _queue.removeAt(0).complete(resp);
