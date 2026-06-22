@@ -132,7 +132,7 @@ class EppResponse {
 
   String? _formatDate(String? raw) {
     if (raw == null || raw.isEmpty) return null;
-    // Формат сервера: 2024-01-15T10:30:00Z — берём только дату
+
     if (raw.length > 10 && raw.contains('T')) {
       return raw.substring(0, 10);
     }
